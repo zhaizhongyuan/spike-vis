@@ -1,4 +1,3 @@
-
 from torch.utils.data import Dataset
 import numpy as np
 import os
@@ -12,6 +11,7 @@ import torchvision.transforms as transforms
 
 def identity(x):
     return x
+
 def pad_to_patch_size(x, patch_size):
     assert x.ndim == 2
     return np.pad(x, ((0,0),(0, patch_size-x.shape[1]%patch_size)), 'wrap')
@@ -88,6 +88,23 @@ def channel_first(img):
         if img.shape[-1] == 3:
             return rearrange(img, 'h w c -> c h w')
         return img
+
+class allen_dataset(Dataset):
+    def __init__(self, path='../data/HCP/npz', transform=identity, include_allen=True):
+        super(allen_dataset, self).__init__()
+        data = []
+        images = []
+
+        if include_allen:
+            pass
+
+        pass
+
+    def __len__(self):
+        pass
+
+    def __getitem__(self, index):
+        pass
 
 class hcp_dataset(Dataset):
     def __init__(self, path='../data/HCP/npz', roi='VC', patch_size=16, transform=identity, aug_times=2, 

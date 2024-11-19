@@ -31,7 +31,8 @@ class Config_MBM_fMRI(Config_MAE_fMRI):
         self.mlp_ratio = 1.0
 
         # Project setting
-        self.root_path = '.'
+        # self.root_path = '.'
+        self.root_path = '../'
         self.output_path = self.root_path
         self.seed = 2022
         self.roi = 'VC'

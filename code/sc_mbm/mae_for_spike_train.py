@@ -1,34 +1,16 @@
 import sc_mbm.utils as ut
+
 import torch
 import torch.nn as nn
-import numpy as np
-from timm.models.vision_transformer import Block
 import torch.nn.functional as F
+import numpy as np
 
-class PatchEmbed1D(nn.Module):
-    """ 1 Dimensional version of data (fmri voxels) to Patch Embedding
-    """
-    def __init__(self, num_voxels=224, patch_size=16, in_chans=1, embed_dim=768):
-        super().__init__()
-        num_patches = num_voxels // patch_size
-        self.patch_shape = patch_size
-        self.num_voxels = num_voxels
-        self.patch_size = patch_size
-        self.num_patches = num_patches
+from timm.models.vision_transformer import PatchEmbed, Block
 
-        self.proj = nn.Conv1d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
-
-    def forward(self, x, **kwargs):
-        B, C, V = x.shape # batch, channel, voxels
-        assert V == self.num_voxels, \
-            f"Input fmri length ({V}) doesn't match model ({self.num_voxels})."
-        x = self.proj(x).transpose(1, 2).contiguous() # put embed_dim at the last dimension
-        return x
-
-class MAEforFMRI(nn.Module):
+class MAEforSPIKE(nn.Module):
     """ Masked Autoencoder with VisionTransformer backbone
     """
-    def __init__(self, num_voxels=224, patch_size=16, embed_dim=1024, in_chans=1,
+    def __init__(self, img_size=256, patch_size=16, embed_dim=1024, in_chans=1,
                  depth=24, num_heads=16, decoder_embed_dim=512, 
                  decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm, focus_range=None, focus_rate=None, img_recon_weight=1.0, 
@@ -37,9 +19,9 @@ class MAEforFMRI(nn.Module):
 
         # --------------------------------------------------------------------------
         # MAE encoder specifics
-        self.patch_embed = PatchEmbed1D(num_voxels, patch_size, in_chans, embed_dim)
-
+        self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
         num_patches = self.patch_embed.num_patches
+
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
@@ -62,7 +44,7 @@ class MAEforFMRI(nn.Module):
             for i in range(decoder_depth)])
 
         self.decoder_norm = norm_layer(decoder_embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size * in_chans, bias=True) # encoder to decoder
+        self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * in_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
 
         # nature image decoder specifics
@@ -96,14 +78,14 @@ class MAEforFMRI(nn.Module):
     def initialize_weights(self):
         # initialization
         # initialize (and freeze) pos_embed by sin-cos embedding
-        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], self.patch_embed.num_patches**.5, cls_token=True)
+        pos_embed = ut.get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
-        decoder_pos_embed = get_2d_sincos_pos_embed(self.decoder_pos_embed.shape[-1], self.patch_embed.num_patches**.5, cls_token=True)
+        decoder_pos_embed = ut.get_2d_sincos_pos_embed(self.decoder_pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
         self.decoder_pos_embed.data.copy_(torch.from_numpy(decoder_pos_embed).float().unsqueeze(0))
 
         if self.use_nature_img_loss:
-            nature_img_decoder_pos_embed = get_2d_sincos_pos_embed(self.nature_img_decoder_pos_embed.shape[-1], self.patch_embed.num_patches**.5, cls_token=True)
+            nature_img_decoder_pos_embed = ut.get_2d_sincos_pos_embed(self.nature_img_decoder_pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
             self.nature_img_decoder_pos_embed.data.copy_(torch.from_numpy(nature_img_decoder_pos_embed).float().unsqueeze(0))
             torch.nn.init.normal_(self.nature_img_mask_token, std=.02)
 
@@ -127,33 +109,33 @@ class MAEforFMRI(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
-        elif isinstance(m, nn.Conv1d):
-            torch.nn.init.normal_(m.weight, std=.02)
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
-    
     
     def patchify(self, imgs):
         """
-        imgs: (N, 1, num_voxels)
-        x: (N, L, patch_size)
+        imgs: (N, 1, H, W)
+        x: (N, L, patch_size**2)
         """
-        p = self.patch_embed.patch_size
-        assert imgs.ndim == 3 and imgs.shape[2] % p == 0
+        p = self.patch_embed.patch_size[0]
+        assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
 
-        h = imgs.shape[2] // p
-        x = imgs.reshape(shape=(imgs.shape[0], h, p))
+        h = w = imgs.shape[2] // p
+        x = imgs.reshape(shape=(imgs.shape[0], 1, h, p, w, p))
+        x = torch.einsum('nchpwq->nhwpqc', x)
+        x = x.reshape(shape=(imgs.shape[0], h * w, p**2))
         return x
 
     def unpatchify(self, x):
         """
-        x: (N, L, patch_size)
-        imgs: (N, 1, num_voxels)
+        x: (N, L, patch_size**2)
+        imgs: (N, 1, H, W)
         """
-        p = self.patch_embed.patch_size
-        h = x.shape[1]
+        p = self.patch_embed.patch_size[0]
+        h = w = int(x.shape[1]**.5)
+        assert h * w == x.shape[1]
         
-        imgs = x.reshape(shape=(x.shape[0], 1, h * p))
+        x = x.reshape(shape=(x.shape[0], h, w, p, p, 1))
+        x = torch.einsum('nhwpqc->nchpwq', x)
+        imgs = x.reshape(shape=(x.shape[0], 1, h * p, h * p))
         return imgs
 
     def random_masking(self, x, mask_ratio):
@@ -279,8 +261,8 @@ class MAEforFMRI(nn.Module):
 
     def forward_loss(self, imgs, pred, mask):
         """
-        imgs: [N, 1, num_voxels]
-        pred: [N, L, p]
+        imgs: [N, 1, H, W]
+        pred: [N, L, p*p]
         mask: [N, L], 0 is keep, 1 is remove, 
         """
         target = self.patchify(imgs)
@@ -293,7 +275,7 @@ class MAEforFMRI(nn.Module):
 
     def forward(self, imgs, img_features=None, valid_idx=None, mask_ratio=0.75):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
-        pred = self.forward_decoder(latent, ids_restore)  # [N, L, p]
+        pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p]
         loss = self.forward_loss(imgs, pred, mask)
 
         if self.use_nature_img_loss and img_features is not None:
@@ -310,12 +292,12 @@ class MAEforFMRI(nn.Module):
         return loss, pred, mask
 
 class fmri_encoder(nn.Module):
-    def __init__(self, num_voxels=224, patch_size=16, embed_dim=1024, in_chans=1,
+    def __init__(self, img_size=256, patch_size=16, embed_dim=1024, in_chans=1,
                  depth=24, num_heads=16, mlp_ratio=4., norm_layer=nn.LayerNorm, global_pool=True):
         super().__init__()
-        self.patch_embed = PatchEmbed1D(num_voxels, patch_size, in_chans, embed_dim)
-
+        self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
         num_patches = self.patch_embed.num_patches
+
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
@@ -335,7 +317,7 @@ class fmri_encoder(nn.Module):
     def initialize_weights(self):
         # initialization
         # initialize (and freeze) pos_embed by sin-cos embedding
-        pos_embed = ut.get_1d_sincos_pos_embed(self.pos_embed.shape[-1], self.patch_embed.num_patches, cls_token=True)
+        pos_embed = ut.get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
         # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
@@ -356,10 +338,6 @@ class fmri_encoder(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
-        elif isinstance(m, nn.Conv1d):
-            torch.nn.init.normal_(m.weight, std=.02)
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
 
     def forward_encoder(self, x):
         # embed patches
@@ -378,7 +356,7 @@ class fmri_encoder(nn.Module):
 
     def forward(self, imgs):
         if imgs.ndim == 2:
-            imgs = torch.unsqueeze(imgs, dim=0)  # N, n_seq, embed_dim
+            imgs = torch.unsqueeze(imgs, dim=0)
         latent = self.forward_encoder(imgs) # N, n_seq, embed_dim
         return latent # N, n_seq, embed_dim
     

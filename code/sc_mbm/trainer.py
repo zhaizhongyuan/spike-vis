@@ -1,7 +1,8 @@
 import math, sys
 import torch
 import sc_mbm.utils as ut
-from torch._six import inf
+# from torch._six import inf
+inf = float('inf')
 import numpy as np
 import time
 
