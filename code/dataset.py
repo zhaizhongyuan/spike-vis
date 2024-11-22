@@ -1,6 +1,8 @@
 from torch.utils.data import Dataset
 import numpy as np
+from PIL import Image
 import os
+from os.path import splitext, isfile, join
 from scipy import interpolate
 from einops import rearrange
 import json
@@ -89,22 +91,51 @@ def channel_first(img):
             return rearrange(img, 'h w c -> c h w')
         return img
 
-class allen_dataset(Dataset):
-    def __init__(self, path='../data/HCP/npz', transform=identity, include_allen=True):
+class allen_dataset_1d(Dataset):
+    def __init__(self, path='../data/ALLEN/natural_scenes', neural_dir='neural_per_exp', img_dir='templates', transform=identity, include_allen=True):
         super(allen_dataset, self).__init__()
-        data = []
-        images = []
-
-        if include_allen:
-            pass
-
-        pass
+        self.path = path
+        self.neural_dir = neural_dir
+        self.img_dir = img_dir
+        self.data_filenames = sorted(os.listdir(os.path.join(path, neural_dir)))
 
     def __len__(self):
-        pass
+        return len(self.data_filenames)
 
     def __getitem__(self, index):
-        pass
+        data_filename = self.data_filenames[index]
+        spikes = torch.tensor(np.load(os.path.join(self.path, os.path.join(self.neural_dir, data_filename))), dtype=torch.float32)
+
+        data_id = int(splitext(data_filename)[0].split('_')[-1])
+        n_repeats_per_img = 50
+        img_id = int(data_id // n_repeats_per_img)
+        img_filename = f'natural_scene_{img_id}.tiff'
+        img = torch.unsqueeze(torch.tensor(np.array(Image.open(os.path.join(self.path, os.path.join(self.img_dir, img_filename)))), dtype=torch.float32), dim=0)
+
+        return {'spikes': torch.mean(spikes, dim=1), 'img': img}
+
+class allen_dataset_2d(Dataset):
+    def __init__(self, path='../data/ALLEN/natural_scenes', neural_dir='neural_per_exp', img_dir='templates', transform=identity, include_allen=True):
+        super(allen_dataset, self).__init__()
+        self.path = path
+        self.neural_dir = neural_dir
+        self.img_dir = img_dir
+        self.data_filenames = sorted(os.listdir(os.path.join(path, neural_dir)))
+
+    def __len__(self):
+        return len(self.data_filenames)
+
+    def __getitem__(self, index):
+        data_filename = self.data_filenames[index]
+        spikes = torch.tensor(np.load(os.path.join(self.path, os.path.join(self.neural_dir, data_filename))), dtype=torch.float32)
+
+        data_id = int(splitext(data_filename)[0].split('_')[-1])
+        n_repeats_per_img = 50
+        img_id = int(data_id // n_repeats_per_img)
+        img_filename = f'natural_scene_{img_id}.tiff'
+        img = torch.unsqueeze(torch.tensor(np.array(Image.open(os.path.join(self.path, os.path.join(self.img_dir, img_filename)))), dtype=torch.float32), dim=0)
+
+        return {'spikes': spikes, 'img': img}
 
 class hcp_dataset(Dataset):
     def __init__(self, path='../data/HCP/npz', roi='VC', patch_size=16, transform=identity, aug_times=2, 
