@@ -8,6 +8,16 @@ import torchvision.transforms as transforms
 from einops import rearrange
 from PIL import Image
 import pytorch_lightning as pl
+
+import torch.distributed as dist
+from lightning_utilities.core.rank_zero import rank_zero_only
+
+if dist.is_initialized():
+    rank = dist.get_rank()
+    rank_zero_only.rank = rank == 0
+else:
+    rank_zero_only.rank = True
+
 from pytorch_lightning.loggers import WandbLogger
 import copy
 

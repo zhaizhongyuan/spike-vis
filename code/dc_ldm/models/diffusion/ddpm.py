@@ -16,7 +16,8 @@ from contextlib import contextmanager
 from functools import partial
 from tqdm import tqdm
 from torchvision.utils import make_grid
-from pytorch_lightning.utilities.distributed import rank_zero_only
+# from pytorch_lightning.utilities.distributed import rank_zero_only
+from lightning_utilities.core.rank_zero import rank_zero_only
 
 from dc_ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config
 from dc_ldm.modules.ema import LitEma
@@ -398,6 +399,7 @@ class DDPM(pl.LightningModule):
 
         # state = torch.cuda.get_rng_state()    
         with model.ema_scope():
+            # for count, item in enumerate(zip(data['spikes'], data['image'])):
             for count, item in enumerate(zip(data['fmri'], data['image'])):
                 if limit is not None:
                     if count >= limit:

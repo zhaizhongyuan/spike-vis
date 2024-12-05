@@ -291,7 +291,7 @@ class MAEforSPIKE(nn.Module):
 
         return loss, pred, mask
 
-class fmri_encoder(nn.Module):
+class spike_encoder(nn.Module):
     def __init__(self, img_size=256, patch_size=16, embed_dim=1024, in_chans=1,
                  depth=24, num_heads=16, mlp_ratio=4., norm_layer=nn.LayerNorm, global_pool=True):
         super().__init__()

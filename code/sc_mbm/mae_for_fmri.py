@@ -20,8 +20,8 @@ class PatchEmbed1D(nn.Module):
 
     def forward(self, x, **kwargs):
         B, C, V = x.shape # batch, channel, voxels
-        assert V == self.num_voxels, \
-            f"Input fmri length ({V}) doesn't match model ({self.num_voxels})."
+        # assert V == self.num_voxels, \
+        #     f"Input fmri length ({V}) doesn't match model ({self.num_voxels})."
         x = self.proj(x).transpose(1, 2).contiguous() # put embed_dim at the last dimension
         return x
 
@@ -96,14 +96,14 @@ class MAEforFMRI(nn.Module):
     def initialize_weights(self):
         # initialization
         # initialize (and freeze) pos_embed by sin-cos embedding
-        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], self.patch_embed.num_patches**.5, cls_token=True)
+        pos_embed = ut.get_1d_sincos_pos_embed(self.pos_embed.shape[-1], self.patch_embed.num_patches, cls_token=True)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
-        decoder_pos_embed = get_2d_sincos_pos_embed(self.decoder_pos_embed.shape[-1], self.patch_embed.num_patches**.5, cls_token=True)
+        decoder_pos_embed = ut.get_1d_sincos_pos_embed(self.decoder_pos_embed.shape[-1], self.patch_embed.num_patches, cls_token=True)
         self.decoder_pos_embed.data.copy_(torch.from_numpy(decoder_pos_embed).float().unsqueeze(0))
 
         if self.use_nature_img_loss:
-            nature_img_decoder_pos_embed = get_2d_sincos_pos_embed(self.nature_img_decoder_pos_embed.shape[-1], self.patch_embed.num_patches**.5, cls_token=True)
+            nature_img_decoder_pos_embed = ut.get_1d_sincos_pos_embed(self.nature_img_decoder_pos_embed.shape[-1], self.patch_embed.num_patches, cls_token=True)
             self.nature_img_decoder_pos_embed.data.copy_(torch.from_numpy(nature_img_decoder_pos_embed).float().unsqueeze(0))
             torch.nn.init.normal_(self.nature_img_mask_token, std=.02)
 
@@ -310,7 +310,7 @@ class MAEforFMRI(nn.Module):
         return loss, pred, mask
 
 class fmri_encoder(nn.Module):
-    def __init__(self, num_voxels=224, patch_size=16, embed_dim=1024, in_chans=1,
+    def __init__(self, num_voxels=896, patch_size=8, embed_dim=128, in_chans=1,
                  depth=24, num_heads=16, mlp_ratio=4., norm_layer=nn.LayerNorm, global_pool=True):
         super().__init__()
         self.patch_embed = PatchEmbed1D(num_voxels, patch_size, in_chans, embed_dim)

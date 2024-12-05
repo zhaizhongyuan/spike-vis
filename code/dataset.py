@@ -91,13 +91,18 @@ def channel_first(img):
             return rearrange(img, 'h w c -> c h w')
         return img
 
-class allen_dataset_1d(Dataset):
-    def __init__(self, path='../data/ALLEN/natural_scenes', neural_dir='neural_per_exp', img_dir='templates', transform=identity, include_allen=True):
+class allen_dataset(Dataset):
+    def __init__(self, data_filenames, path='../data/ALLEN/natural_scenes', neural_dir='neural_per_exp', img_dir='templates', fmri_transform=identity, image_transform=identity, n_neurons=896):
         super(allen_dataset, self).__init__()
         self.path = path
         self.neural_dir = neural_dir
         self.img_dir = img_dir
-        self.data_filenames = sorted(os.listdir(os.path.join(path, neural_dir)))
+        self.data_filenames = sorted(data_filenames)
+        self.n_neurons = n_neurons
+        self.img_size = 256
+        self.fmri_transform = fmri_transform
+        self.image_transform = image_transform
+        self.return_image_class_info = False
 
     def __len__(self):
         return len(self.data_filenames)
@@ -105,22 +110,65 @@ class allen_dataset_1d(Dataset):
     def __getitem__(self, index):
         data_filename = self.data_filenames[index]
         spikes = torch.tensor(np.load(os.path.join(self.path, os.path.join(self.neural_dir, data_filename))), dtype=torch.float32)
+        spikes = torch.mean(spikes[:self.n_neurons, :], dim=1) # 1d
+        spikes = (spikes - torch.mean(spikes)) / torch.std(spikes) # normalize
+        spikes = self.fmri_transform(spikes)
+        spikes = torch.unsqueeze(spikes, dim=0)
 
         data_id = int(splitext(data_filename)[0].split('_')[-1])
         n_repeats_per_img = 50
         img_id = int(data_id // n_repeats_per_img)
         img_filename = f'natural_scene_{img_id}.tiff'
-        img = torch.unsqueeze(torch.tensor(np.array(Image.open(os.path.join(self.path, os.path.join(self.img_dir, img_filename)))), dtype=torch.float32), dim=0)
+        img = Image.open(os.path.join(self.path, os.path.join(self.img_dir, img_filename)))
+        img = torch.tensor(np.array(img.resize((self.img_size, self.img_size), Image.Resampling.LANCZOS)), dtype=torch.float32) / 255.0 # resize to 256 x 256
+        img = self.image_transform(torch.stack([img, img, img], dim=-1))
 
-        return {'spikes': torch.mean(spikes, dim=1), 'img': img}
+        # return {'fmri': spikes, 'image': img, 'naive_label': img_id}
+        return {'fmri': spikes, 'image': img}
+
+class allen_dataset_1d(Dataset):
+    def __init__(self, path='../data/ALLEN/natural_scenes', neural_dir='neural_per_exp', img_dir='templates', fmri_transform=identity, image_transform=identity):
+        super(allen_dataset_1d, self).__init__()
+        self.path = path
+        self.neural_dir = neural_dir
+        self.img_dir = img_dir
+        self.data_filenames = sorted(os.listdir(os.path.join(path, neural_dir)))
+        self.n_neurons = 896
+        self.img_size = 256
+        self.fmri_transform = fmri_transform
+        self.image_transform = image_transform
+        self.return_image_class_info = False
+        
+    def __len__(self):
+        return len(self.data_filenames)
+
+    def __getitem__(self, index):
+        data_filename = self.data_filenames[index]
+        spikes = torch.tensor(np.load(os.path.join(self.path, os.path.join(self.neural_dir, data_filename))), dtype=torch.float32)
+        spikes = torch.mean(spikes[:self.n_neurons, :], dim=1) # 1d
+        spikes = (spikes - torch.mean(spikes)) / torch.std(spikes) # normalize
+        spikes = self.fmri_transform(spikes)
+        spikes = torch.unsqueeze(spikes, dim=0)
+
+        data_id = int(splitext(data_filename)[0].split('_')[-1])
+        n_repeats_per_img = 50
+        img_id = int(data_id // n_repeats_per_img)
+        img_filename = f'natural_scene_{img_id}.tiff'
+        img = Image.open(os.path.join(self.path, os.path.join(self.img_dir, img_filename)))
+        img = torch.tensor(np.array(img.resize((self.img_size, self.img_size), Image.Resampling.LANCZOS)), dtype=torch.float32) / 255.0 # resize to 256 x 256
+        img = self.image_transform(torch.stack([img, img, img], dim=-1))
+
+        return {'spikes': spikes, 'image': img, 'class_label': img_id}
 
 class allen_dataset_2d(Dataset):
     def __init__(self, path='../data/ALLEN/natural_scenes', neural_dir='neural_per_exp', img_dir='templates', transform=identity, include_allen=True):
-        super(allen_dataset, self).__init__()
+        super(allen_dataset_2d, self).__init__()
         self.path = path
         self.neural_dir = neural_dir
         self.img_dir = img_dir
         self.data_filenames = sorted(os.listdir(os.path.join(path, neural_dir)))
+        self.n_neurons = 899
+        self.img_size = 64
 
     def __len__(self):
         return len(self.data_filenames)
@@ -128,14 +176,42 @@ class allen_dataset_2d(Dataset):
     def __getitem__(self, index):
         data_filename = self.data_filenames[index]
         spikes = torch.tensor(np.load(os.path.join(self.path, os.path.join(self.neural_dir, data_filename))), dtype=torch.float32)
+        spikes = spikes[:self.n_neurons, :] # use 256 neruons per trial
+        # spikes = torch.concatenate([spikes, torch.zeros(spikes.shape[0], self.n_neurons-spikes.shape[1])], dim=1)
+        spikes = torch.unsqueeze(spikes, dim=0)
 
         data_id = int(splitext(data_filename)[0].split('_')[-1])
         n_repeats_per_img = 50
         img_id = int(data_id // n_repeats_per_img)
         img_filename = f'natural_scene_{img_id}.tiff'
-        img = torch.unsqueeze(torch.tensor(np.array(Image.open(os.path.join(self.path, os.path.join(self.img_dir, img_filename)))), dtype=torch.float32), dim=0)
+        img = Image.open(os.path.join(self.path, os.path.join(self.img_dir, img_filename)))
+        img = img.resize((self.img_size, self.img_size), Image.Resampling.LANCZOS) # resize to 64 to 64
+        img = torch.unsqueeze(torch.tensor(np.array(img), dtype=torch.float32), dim=-1)
 
-        return {'spikes': spikes, 'img': img}
+        return {'spikes': spikes, 'image': img, 'class_label': img_id}
+
+def create_allen_dataset(path='../data/ALLEN/natural_scenes', neural_dir='neural_per_exp', img_dir='templates', fmri_transform=identity, image_transform=identity):
+    data_filenames = sorted(os.listdir(os.path.join(path, neural_dir)))
+    train_data_filenames = []
+    test_data_filenames = []
+    n_train_data_per_img = 40
+    n_test_data_per_img = 10
+
+    i = 0
+    while i < len(data_filenames):
+        train_data_filenames.extend(data_filenames[i:i + n_train_data_per_img])  # Add the next 40 elements to a group
+        i += n_train_data_per_img
+        if i < len(data_filenames):  # Ensure there are still elements left
+            test_data_filenames.extend(data_filenames[i:i + n_test_data_per_img])  # Add the next 10 elements to another group
+            i += n_test_data_per_img
+    assert i == len(data_filenames)
+
+    if isinstance(image_transform, list):
+        return (allen_dataset(train_data_filenames, path, neural_dir, img_dir, fmri_transform, image_transform[0]), 
+                allen_dataset(test_data_filenames, path, neural_dir, img_dir, torch.FloatTensor, image_transform[1]))
+    else:
+        return (allen_dataset(train_data_filenames, path, neural_dir, img_dir, fmri_transform, image_transform), 
+                allen_dataset(test_data_filenames, path, neural_dir, img_dir, torch.FloatTensor, image_transform))
 
 class hcp_dataset(Dataset):
     def __init__(self, path='../data/HCP/npz', roi='VC', patch_size=16, transform=identity, aug_times=2, 
@@ -321,8 +397,7 @@ def create_Kamitani_dataset(path='../data/Kamitani/npz',  roi='VC', patch_size=1
         return (Kamitani_dataset(train_fmri, train_img, train_img_label_all, fmri_transform, image_transform, num_voxels, len(npz['arr_0'])), 
                 Kamitani_dataset(test_fmri, test_img, test_img_label_all, torch.FloatTensor, image_transform, num_voxels, len(npz['arr_2'])))
 
-def reorganize_train_test(train_img, train_fmri, test_img, test_fmri, train_lb, test_lb, 
-                    test_category, train_index_lookup):
+def reorganize_train_test(train_img, train_fmri, test_img, test_fmri, train_lb, test_lb, test_category, train_index_lookup):
     test_img_ = []
     test_fmri_ = []
     test_lb_ = []

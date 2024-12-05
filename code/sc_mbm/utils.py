@@ -128,7 +128,7 @@ def save_model(config, epoch, model, optimizer, loss_scaler, checkpoint_paths):
     torch.save(to_save, os.path.join(checkpoint_paths, 'checkpoint.pth'))
     
 
-def load_model(config, model, checkpoint_path ):
+def load_model(config, model, checkpoint_path):
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     model.load_state_dict(checkpoint['model'])
     print(f'Model loaded with {checkpoint_path}')
