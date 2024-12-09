@@ -22,8 +22,8 @@ class Config_MBM_SPIKE(Config_MAE_fMRI):
         
         # Model Parameters
         self.mask_ratio = 0.75
-        self.patch_size = 8
-        self.embed_dim = 128 # has to be a multiple of num_heads
+        self.patch_size = 16
+        self.embed_dim = 256 # has to be a multiple of num_heads
         self.decoder_embed_dim = 512
         self.depth = 24
         self.num_heads = 16
@@ -167,5 +167,6 @@ class Config_Generative_Model:
         self.HW = None
         # resume check util
         self.model_meta = None
-        self.checkpoint_path = None # os.path.join(self.root_path, 'results/generation/25-08-2022-08:02:55/checkpoint.pth')
+        # self.checkpoint_path = None
+        self.checkpoint_path = os.path.join(self.root_path, 'results/generation/25-08-2022-08:02:55/checkpoint.pth')
         

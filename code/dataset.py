@@ -126,6 +126,33 @@ class allen_dataset(Dataset):
         # return {'fmri': spikes, 'image': img, 'naive_label': img_id}
         return {'fmri': spikes, 'image': img}
 
+class allen_dataset_static_grating_1d(Dataset):
+    def __init__(self, path='../data/ALLEN/static_grating_orientation', neural_dir='neural_per_exp', fmri_transform=identity):
+        super(allen_dataset_static_grating_1d, self).__init__()
+        self.path = path
+        self.neural_dir = neural_dir
+        self.data_filenames = sorted(os.listdir(os.path.join(path, neural_dir)))
+        self.n_neurons = 1952
+        self.img_size = 256
+        self.fmri_transform = fmri_transform
+        
+    def __len__(self):
+        return len(self.data_filenames)
+
+    def __getitem__(self, index):
+        data_filename = self.data_filenames[index]
+        spikes = torch.tensor(np.load(os.path.join(self.path, os.path.join(self.neural_dir, data_filename))), dtype=torch.float32)
+        spikes = torch.mean(spikes[:self.n_neurons, :], dim=1) # 1d
+        spikes = (spikes - torch.mean(spikes)) / torch.std(spikes) # normalize
+        spikes = self.fmri_transform(spikes)
+        spikes = torch.unsqueeze(spikes, dim=0)
+
+        data_id = int(splitext(data_filename)[0].split('_')[-1])
+        n_repeats_per_orientation = 800
+        target_id = int(data_id // n_repeats_per_orientation)
+
+        return {'fmri': spikes, 'class_label': target_id}
+
 class allen_dataset_1d(Dataset):
     def __init__(self, path='../data/ALLEN/natural_scenes', neural_dir='neural_per_exp', img_dir='templates', fmri_transform=identity, image_transform=identity):
         super(allen_dataset_1d, self).__init__()

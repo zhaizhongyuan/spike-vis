@@ -393,3 +393,21 @@ class fmri_encoder(nn.Module):
         print('missing keys:', u)
         print('unexpected keys:', m)
         return 
+
+# Extend fmri_encoder with a classification head
+class fmri_classifier(nn.Module):
+    def __init__(self, base_encoder, num_classes):
+        super().__init__()
+        self.encoder = base_encoder
+        self.classification_head = nn.Sequential(
+            nn.Linear(self.encoder.embed_dim, 64),
+            nn.Linear(64, 32),
+            # nn.Linear(32, 32),
+            nn.Linear(32, num_classes)
+        )
+
+    def forward(self, x):
+        latent = self.encoder(x)  # Output shape: (N, 1, embed_dim) or (N, embed_dim) after mean pooling
+        latent = latent.squeeze(1)  # Remove the extra dimension if global pooling
+        logits = self.classification_head(latent)
+        return logits
